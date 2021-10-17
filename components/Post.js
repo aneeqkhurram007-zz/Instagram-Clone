@@ -5,8 +5,39 @@ import {
 } from '@heroicons/react/outline'
 import { HeartIcon as HeartFilled } from '@heroicons/react/solid'
 import { useSession } from 'next-auth/react'
-const Post = ({ username, profileImg, image, caption }) => {
+import { addDoc, collection, serverTimestamp, orderBy, onSnapshot, query, setDoc, doc, deleteDoc } from 'firebase/firestore'
+import { db } from '../firebase'
+import { useEffect, useState } from 'react'
+const Post = ({ id, username, profileImg, image, caption }) => {
     const { data: session } = useSession()
+    const [comments, setComments] = useState([])
+    const [likes, setLikes] = useState([])
+    const [hasLiked, setHasLiked] = useState(false)
+    const [comment, setComment] = useState('')
+    const sendComment = async (e) => {
+        e.preventDefault()
+        const commentToSend = comment;
+        setComment('');
+        await addDoc(collection(db, 'posts', id, 'comments'), {
+            comment: commentToSend,
+            username: session.user.username,
+            userImage: session.user.image,
+            timestamp: serverTimestamp()
+        })
+    }
+    const likePost = async () => {
+        if (hasLiked) {
+            await deleteDoc(doc(db, 'posts', id, 'likes', session.user.uid))
+        }
+        else {
+            await setDoc(doc(db, 'posts', id, 'likes', session.user.uid), {
+                username: session.user.username,
+            })
+        }
+    }
+    useEffect(() => onSnapshot(query(collection(db, 'posts', id, 'comments'), orderBy('timestamp', 'desc')), snapshot => setComments(snapshot?.docs)), [db, id])
+    useEffect(() => onSnapshot(collection(db, 'posts', id, 'likes'), snapshot => setLikes(snapshot?.docs)), [db, id])
+    useEffect(() => setHasLiked(likes.findIndex(like => (like.id === session?.user.uid)) !== -1), [likes])
     return (
         <div className="bg-white my-7 border rounded-sm">
             {/* Header */}
@@ -23,7 +54,10 @@ const Post = ({ username, profileImg, image, caption }) => {
             {session && (
                 <div className="flex justify-between px-4 pt-4">
                     <div className="flex space-x-4">
-                        <HeartIcon className="btn" />
+                        {
+                            hasLiked ? (<HeartFilled onClick={likePost} className="btn text-red-500" />) : (<HeartIcon onClick={likePost} className="btn" />)
+                        }
+
                         <ChatIcon className="btn" />
                         <PaperAirplaneIcon className="btn" />
                     </div>
@@ -33,19 +67,34 @@ const Post = ({ username, profileImg, image, caption }) => {
 
 
             {/* Captions */}
+
             <p className="p-5 truncate">
+                {likes.length > 0 && (
+                    <span className="font-bold mb-1">{likes.length} likes</span>
+                )}
+                <br />
                 <span className="font-bold mr-1">{username} </span>
                 {caption}
             </p>
             {/* Comments */}
+            {comments.length > 0 && (
+                <div className="ml-10 h-20 overflow-y-scroll scrollbar-thumb-black scrollbar-thin">
+                    {comments.map(comment => (
+                        <div key={comment.id} className="flex items-center space-x-2 mb-3">
+                            <img className="h-7 rounded-full" src={comment.data().userImage} alt="" />
+                            <p className="text-sm flex-1"><span className="font-bold">{comment.data().username}</span> {comment.data().comment}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
             {/* Input Box */}
             {session && (
-                <form className="flex items-center p-4">
+                <form className="flex items-center p-4" onSubmit={sendComment}>
                     <EmojiHappyIcon className="h-7" />
-                    <input className="border-none flex-1 focus:ring-0
-                outline-none
-                " type="text" placeholder="Add a comment..." />
-                    <button className="font-semibold text-blue-400">Post</button>
+                    <input className="border-none flex-1 focus:ring-0 outline-none" type="text" value={comment}
+                        onChange={(e) => setComment(e.target.value)} placeholder="Add a comment..." />
+                    <button type="submit" disabled={!comment.trim()}
+                        onClick={sendComment} className="font-semibold text-blue-400">Post</button>
                 </form>
             )}
 
